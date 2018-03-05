@@ -1,21 +1,25 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
 	"unicode"
+
+	"golang.org/x/time/rate"
 )
 
 const (
-	// DefaultDownloadSize is the default size for responses to GET requests
-	DefaultDownloadSize = "1M"
+	// DefaultDownloadSize is the default size for responses to GET requests.
+	DefaultDownloadSize int64 = 1024 * 1024
 )
 
 // ParseSize converts a size string into a number of bytes. A size string is an
@@ -49,6 +53,64 @@ func ParseSize(s string) (bytes int64, err error) {
 	return
 }
 
+// Reader is an io.Reader that implements a rate limit on reads. The rate limit
+// holds over the duration of all read operations, but may be exceeded at any
+// given instant.
+type Reader struct {
+	r       io.Reader
+	limiter *rate.Limiter
+}
+
+// NewReader creates a new rate-limited reader. The limit is in bytes/second.
+func NewReader(r io.Reader, limit rate.Limit) *Reader {
+	return &Reader{
+		r:       r,
+		limiter: rate.NewLimiter(limit, burstFromLimit(limit)),
+	}
+}
+
+func (r *Reader) Read(p []byte) (n int, err error) {
+	n, err = r.r.Read(p)
+	if n <= 0 {
+		return
+	}
+
+	waitErr := r.wait(n)
+	if err == nil {
+		err = waitErr
+	}
+	return
+}
+
+func (r *Reader) wait(n int) error {
+	burst := r.limiter.Burst()
+	for n > 0 {
+		waitN := min(n, burst)
+		n -= waitN
+
+		err := r.limiter.WaitN(context.TODO(), waitN)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func burstFromLimit(limit rate.Limit) int {
+	ceil := math.Ceil(float64(limit))
+	if ceil < float64(math.MaxInt32) {
+		return int(ceil)
+	}
+	return math.MaxInt32
+}
+
+func min(a, b int) int {
+	if a > b {
+		return b
+	}
+	return a
+}
+
 // Handler accepts GET and PUT request on all paths. GET requests response with
 // a random binary file, while PUT requests discard all received data.
 type Handler struct{}
@@ -69,34 +131,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 // ServeDownload responds with a random binary file of the requested size.
 func (h *Handler) ServeDownload(w http.ResponseWriter, req *http.Request) {
-	query := req.URL.Query()
-
-	size := query.Get("size")
-	if size == "" {
-		size = DefaultDownloadSize
+	size, err := getSize(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("size: %v", err), http.StatusBadRequest)
+		return
 	}
 
-	bytes, err := ParseSize(size)
+	limit, err := getLimit(req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("rate: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	src := rand.NewSource(time.Now().Unix())
-	r := rand.New(src)
+	r := NewReader(rand.New(src), limit)
 
 	w.Header().Add("Content-Type", "application/octet-stream")
-	w.Header().Add("Content-Length", strconv.FormatInt(bytes, 10))
+	w.Header().Add("Content-Length", strconv.FormatInt(size, 10))
 
 	w.WriteHeader(http.StatusOK)
-	if n, err := io.CopyN(w, r, bytes); err != nil {
-		log.Printf("[ERROR] incomplete write: wanted = %d, wrote = %d: %v\n", bytes, n, err)
+	if n, err := io.CopyN(w, r, size); err != nil {
+		log.Printf("[ERROR] incomplete write: wanted = %d, wrote = %d: %v\n", size, n, err)
 	}
 }
 
 // ServeUpload reads and discards all data in the request body.
 func (h *Handler) ServeUpload(w http.ResponseWriter, req *http.Request) {
-	n, err := io.Copy(ioutil.Discard, req.Body)
+	limit, err := getLimit(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("rate: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	r := NewReader(req.Body, limit)
+
+	n, err := io.Copy(ioutil.Discard, r)
 	if err != nil {
 		msg := fmt.Sprintf("incomplete read: wanted = %d, wrote = %d: %v\n", req.ContentLength, n, err)
 		http.Error(w, msg, http.StatusInternalServerError)
@@ -104,6 +173,30 @@ func (h *Handler) ServeUpload(w http.ResponseWriter, req *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
+}
+
+func getLimit(req *http.Request) (rate.Limit, error) {
+	rateParam := req.URL.Query().Get("rate")
+	if rateParam != "" {
+		bytes, err := ParseSize(rateParam)
+		if err != nil {
+			return 0, err
+		}
+		return rate.Limit(bytes), nil
+	}
+	return rate.Inf, nil
+}
+
+func getSize(req *http.Request) (int64, error) {
+	sizeParam := req.URL.Query().Get("size")
+	if sizeParam != "" {
+		size, err := ParseSize(sizeParam)
+		if err != nil {
+			return 0, err
+		}
+		return size, nil
+	}
+	return DefaultDownloadSize, nil
 }
 
 var opts struct {
