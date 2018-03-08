@@ -13,20 +13,32 @@ Run `srcsnk` to start the server. The `-address` flag sets the listen address.
 
 Once the server is running, you can download a file at any path:
 
-    $ curl localhost:8000/an/arbitrary/file.bin?size=10M&rate=1M -o file.bin
+    $ curl localhost:8000/an/arbitrary/file.bin?size=10M -o file.bin
 
-The `size` parameter controls the size of the downloaded file. It takes the
-suffixes `B`, `K`, `M`, or `G` for bytes, kilobytes, megabytes, or gigabytes,
-respectively (these have the same meaning as in the `dd` command.)
+Or upload a file to any path:
 
-The `rate` parameter controls the download rate. It takes the same values as
-the `size` parameter, but here they are per-second rates instead of totals.
+    $ curl -T file.bin localhost:8000/an/arbitrary/path/file.bin
 
-If the `rate` parameter is not provided, the transfer is as fast as possible.
+All the received data is discarded by the server.
 
-You can also upload a file to any path:
+Each endpoint accepts several paramters described below.
 
-    $ curl -T file.bin localhost:8000/an/arbitrary/path/?rate=1M
+### Paramters
 
-All the received data is discarded by the server. The `rate` parameter controls
-the upload rate.
+- `size` - (download only) controls the size of the downloaded file. It takes
+  the suffixes `B`, `K`, `M`, and `G` for bytes, kilobytes, megabytes, or
+  gigabytes, respectively; these have the same meaning as in the `dd` command.
+
+- `rate` - controls the download or upload rate, in bytes per second. It
+  accepts the same suffixes as the `size` paramter.
+
+- `delayPre` - the amount of time to wait before processing the request,
+  including reading the request body. It accepts any value allowed by
+  [`time.ParseDuration`][].
+
+- `delayRes` - the amount of time to wait before sending the initial response
+  headers. It accepts any value allowed by [`time.ParseDuration`][]. For
+  downloads, `delayPre` and `delayRes` are interchangeable.
+
+
+[`time.ParseDuration`]: https://golang.org/pkg/time/#ParseDuration

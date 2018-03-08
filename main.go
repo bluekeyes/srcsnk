@@ -143,11 +143,19 @@ func (h *Handler) ServeDownload(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	preDelay, resDelay, err := getDelays(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	src := rand.NewSource(time.Now().Unix())
 	r := NewReader(rand.New(src), limit)
 
 	w.Header().Add("Content-Type", "application/octet-stream")
 	w.Header().Add("Content-Length", strconv.FormatInt(size, 10))
+
+	time.Sleep(preDelay + resDelay)
 
 	w.WriteHeader(http.StatusOK)
 	if n, err := io.CopyN(w, r, size); err != nil {
@@ -163,7 +171,15 @@ func (h *Handler) ServeUpload(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	preDelay, resDelay, err := getDelays(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	r := NewReader(req.Body, limit)
+
+	time.Sleep(preDelay)
 
 	n, err := io.Copy(ioutil.Discard, r)
 	if err != nil {
@@ -171,6 +187,8 @@ func (h *Handler) ServeUpload(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, msg, http.StatusInternalServerError)
 		return
 	}
+
+	time.Sleep(resDelay)
 
 	w.WriteHeader(http.StatusCreated)
 }
@@ -197,6 +215,27 @@ func getSize(req *http.Request) (int64, error) {
 		return size, nil
 	}
 	return DefaultDownloadSize, nil
+}
+
+func getDelays(req *http.Request) (pre time.Duration, res time.Duration, err error) {
+	parse := func(name string) (d time.Duration, err error) {
+		param := req.URL.Query().Get(name)
+		if param != "" {
+			d, err = time.ParseDuration(param)
+			if err != nil {
+				err = fmt.Errorf("%s: %v", name, err)
+			}
+		}
+		return
+	}
+
+	pre, err = parse("delayPre")
+	if err != nil {
+		return
+	}
+
+	res, err = parse("delayRes")
+	return
 }
 
 var opts struct {
