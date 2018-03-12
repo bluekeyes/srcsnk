@@ -24,18 +24,18 @@ Each endpoint accepts several paramters described below.
 
 ### Paramters
 
-- `size` - (download only) controls the size of the downloaded file. It takes
+- `size` – (download only) controls the size of the downloaded file. It takes
   the suffixes `B`, `K`, `M`, and `G` for bytes, kilobytes, megabytes, or
   gigabytes, respectively; these have the same meaning as in the `dd` command.
 
-- `rate` - controls the download or upload rate, in bytes per second. It
+- `rate` – controls the download or upload rate, in bytes per second. It
   accepts the same suffixes as the `size` paramter.
 
-- `delayPre` - the amount of time to wait before processing the request,
+- `delayPre` – the amount of time to wait before processing the request,
   including reading the request body. It accepts any value allowed by
   [`time.ParseDuration`][].
 
-- `delayRes` - the amount of time to wait before sending the initial response
+- `delayRes` – the amount of time to wait before sending the initial response
   headers. It accepts any value allowed by [`time.ParseDuration`][]. For
   downloads, `delayPre` and `delayRes` are interchangeable.
 
@@ -45,6 +45,6 @@ Each endpoint accepts several paramters described below.
 
 The command accepts the following flags:
 
-- `-address` - sets the address (IP and port) the server listens on; defaults to `127.0.0.1:8000`
+- `-address` – sets the address (IP and port) the server listens on; defaults to `127.0.0.1:8000`
 
-- `-log-file` - sets the file where log output is written; default to standard out
+- `-log-file` – sets the file where log output is written; if not provided, logs are written to stdout
