@@ -9,9 +9,8 @@ speeds. Useful for testing proxies and clients.
 
 ## Usage
 
-Run `srcsnk` to start the server. The `-address` flag sets the listen address.
-
-Once the server is running, you can download a file at any path:
+Run `srcsnk` to start the server. Once the server is running, you can download
+a file at any path:
 
     $ curl localhost:8000/an/arbitrary/file.bin?size=10M -o file.bin
 
@@ -40,5 +39,12 @@ Each endpoint accepts several paramters described below.
   headers. It accepts any value allowed by [`time.ParseDuration`][]. For
   downloads, `delayPre` and `delayRes` are interchangeable.
 
-
 [`time.ParseDuration`]: https://golang.org/pkg/time/#ParseDuration
+
+### Flags
+
+The command accepts the following flags:
+
+- `-address` - sets the address (IP and port) the server listens on; defaults to `127.0.0.1:8000`
+
+- `-log-file` - sets the file where log output is written; default to standard out

@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 	"unicode"
@@ -111,22 +112,54 @@ func min(a, b int) int {
 	return a
 }
 
+type LoggingResponseWriter struct {
+	http.ResponseWriter
+
+	start  time.Time
+	status int
+	bytes  int64
+}
+
+func NewLoggingResponseWriter(w http.ResponseWriter) *LoggingResponseWriter {
+	return &LoggingResponseWriter{
+		ResponseWriter: w,
+		start:          time.Now(),
+	}
+}
+
+func (w *LoggingResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *LoggingResponseWriter) Write(p []byte) (int, error) {
+	w.bytes += int64(len(p))
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *LoggingResponseWriter) Log(req *http.Request) {
+	elapsed := time.Now().Sub(w.start)
+	log.Printf("[REQUEST] %s %s %d %d %0.3f", req.Method, req.URL, w.status, w.bytes, elapsed.Seconds())
+}
+
 // Handler accepts GET and PUT request on all paths. GET requests response with
 // a random binary file, while PUT requests discard all received data.
 type Handler struct{}
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	log.Printf("[REQUEST] %s %s", req.Method, req.URL)
+	rw := NewLoggingResponseWriter(w)
 
 	switch req.Method {
 	case http.MethodGet:
-		h.ServeDownload(w, req)
+		h.ServeDownload(rw, req)
 	case http.MethodPut:
-		h.ServeUpload(w, req)
+		h.ServeUpload(rw, req)
 	default:
 		code := http.StatusMethodNotAllowed
-		http.Error(w, http.StatusText(code), code)
+		http.Error(rw, http.StatusText(code), code)
 	}
+
+	rw.Log(req)
 }
 
 // ServeDownload responds with a random binary file of the requested size.
@@ -240,15 +273,25 @@ func getDelays(req *http.Request) (pre time.Duration, res time.Duration, err err
 
 var opts struct {
 	Address string
+	LogFile string
 }
 
 func defineAndParseFlags() {
 	flag.StringVar(&opts.Address, "address", "127.0.0.1:8000", "the address to listen on")
+	flag.StringVar(&opts.LogFile, "log-file", "", "the file to write log output to")
 	flag.Parse()
 }
 
 func main() {
 	defineAndParseFlags()
+
+	if opts.LogFile != "" {
+		f, err := os.OpenFile(opts.LogFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		if err != nil {
+			log.Fatalf("Failed to open log file: %s: %v\n", opts.LogFile, err)
+		}
+		log.SetOutput(f)
+	}
 
 	log.Printf("Starting server on %s\n", opts.Address)
 	log.Fatal(http.ListenAndServe(opts.Address, &Handler{}))
